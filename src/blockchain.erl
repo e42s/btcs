@@ -48,9 +48,23 @@ read_block_format_version(Bin) ->
             error_reading_block_format_version
     end.
 
+read_hash_of_previous_block(Bin) ->
+    %% 32 bytes
+    %% It is actually possible for a block to hash to zero, but hugely
+    %% unlikely (though more and more likely as the difficulty
+    %% increases).
+    case Bin of
+        <<HashOfPreviousBlockBin:32/binary, Rest/binary>> ->
+            <<HashOfPreviousBlock:256/integer-little>> = HashOfPreviousBlockBin,
+            {HashOfPreviousBlock, Rest};
+        _ ->
+            error_reading_hash_of_previous_block
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID, Bin1} = read_network_id(Bin),
     {_BlockLength, Bin2} = read_block_length(Bin1),
-    {BlockFormatVersion, _Bin3} = read_block_format_version(Bin2),
-    BlockFormatVersion.
+    {_BlockFormatVersion, Bin3} = read_block_format_version(Bin2),
+    {HashOfPreviousBlock, _Bin4} = read_hash_of_previous_block(Bin3),
+    HashOfPreviousBlock.
