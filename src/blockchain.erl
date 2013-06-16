@@ -61,10 +61,33 @@ read_hash_of_previous_block(Bin) ->
             error_reading_hash_of_previous_block
     end.
 
+read_hash_of_merkle_tree(Bin, Option) ->
+    %% 32 bytes
+    %% Merkle trees are binary trees of hashes.
+    %% Merkle trees in bitcoin use a double SHA-256.
+    %% When forming a row in the tree (other than the root of the tree),
+    %% the final double-hash is duplicated to ensure that the row has
+    %% an even number of hashes.
+    case Bin of
+        <<HashOfMerkleTreeBin:32/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {HashOfMerkleTreeBin, Rest};
+                _ ->
+                    error_option_unknown
+            end;
+        _ ->
+            error_reading_hash_of_merkle_tree
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID, Bin1} = read_network_id(Bin),
     {_BlockLength, Bin2} = read_block_length(Bin1),
     {_BlockFormatVersion, Bin3} = read_block_format_version(Bin2),
-    {HashOfPreviousBlock, _Bin4} = read_hash_of_previous_block(Bin3),
-    HashOfPreviousBlock.
+    {_HashOfPreviousBlock, Bin4} = read_hash_of_previous_block(Bin3),
+    {HashOfMerkleTree, _Bin5} = read_hash_of_merkle_tree(Bin4, raw),
+    binary_to_hex_string(HashOfMerkleTree).
+
+binary_to_hex_string(Bin) ->
+    lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
