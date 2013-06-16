@@ -80,14 +80,38 @@ read_hash_of_merkle_tree(Bin, Option) ->
             error_reading_hash_of_merkle_tree
     end.
 
+read_timestamp(Bin, Option) ->
+    %% 4 bytes
+    %% Format: UNIX epoch time
+    %% Genesis block:
+    %%   1231006505
+    %%   Sat, 03 Jan 2009 18:15:05 UTC
+    %% Max: 2^32 -> 7th February 2106
+    %%   The protocol must be upgraded before then.
+    case Bin of
+        <<TimestampBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {TimestampBin, Rest};
+                decimal ->
+                    <<Timestamp:32/integer-little>> = TimestampBin,
+                    {Timestamp, Rest};
+                _ ->
+                    error_option_unknown
+            end;
+        _ ->
+            error_reading_timestamp
+    end.
+    
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID, Bin1} = read_network_id(Bin),
     {_BlockLength, Bin2} = read_block_length(Bin1),
     {_BlockFormatVersion, Bin3} = read_block_format_version(Bin2),
     {_HashOfPreviousBlock, Bin4} = read_hash_of_previous_block(Bin3),
-    {HashOfMerkleTree, _Bin5} = read_hash_of_merkle_tree(Bin4, raw),
-    binary_to_hex_string(HashOfMerkleTree).
+    {_HashOfMerkleTree, Bin5} = read_hash_of_merkle_tree(Bin4, raw),
+    {TS, _Bin6} = read_timestamp(Bin5, decimal),
+    TS.
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
