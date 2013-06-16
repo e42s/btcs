@@ -4,6 +4,7 @@
 %% The first block in the blockchain contains 285 bytes.
 
 read_network_id(Bin) ->
+    %% 4 bytes
     %% The magic network ID is sent over wire as:
     %%                   249,     190,     180,     217
     NetworkIDBin = <<16#F9:8, 16#BE:8, 16#B4:8, 16#D9:8>>,
@@ -21,10 +22,24 @@ read_network_id(Bin) ->
             <<NetworkID:32/integer-little>> = NetworkIDBin,
             {NetworkID, Rest};
         _ ->
-            error_getting_network_id
+            error_reading_network_id
+    end.
+
+read_block_length(Bin) ->
+    %% 4 bytes
+    %% 2^32 bytes is about 4GB
+    %% The current client will not accept blocks larger than 1MB.
+    case Bin of
+        <<BlockLengthBin:4/binary, Rest/binary>> ->
+            <<BlockLength:32/integer-little>> = BlockLengthBin,
+            {BlockLength, Rest};
+        _ ->
+            error_reading_the_block_length
     end.
 
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
-    <<B:32/binary, _/binary>> = Bin,
-    read_network_id(B).
+    {NetworkID, Bin1} = read_network_id(Bin),
+    {BlockLength, _Bin2} = read_block_length(Bin1),
+    {NetworkID,
+     BlockLength}.
