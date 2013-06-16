@@ -1,5 +1,5 @@
 all:
-	erlc -o ebin/ src/*.erl src_tests/*.erl
+	erlc -o ebin/ src/*.erl
 
 clean:
 	rm ebin/*.beam
