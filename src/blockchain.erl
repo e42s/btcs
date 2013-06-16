@@ -34,12 +34,23 @@ read_block_length(Bin) ->
             <<BlockLength:32/integer-little>> = BlockLengthBin,
             {BlockLength, Rest};
         _ ->
-            error_reading_the_block_length
+            error_reading_block_length
+    end.
+
+read_block_format_version(Bin) ->
+    %% 4 bytes
+    %% This is distinct from protocol version and client version.
+    case Bin of
+        <<BlockFormatVersionBin:4/binary, Rest/binary>> ->
+            <<BlockFormatVersion:32/integer-little>> = BlockFormatVersionBin,
+            {BlockFormatVersion, Rest};
+        _ ->
+            error_reading_block_format_version
     end.
 
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
-    {NetworkID, Bin1} = read_network_id(Bin),
-    {BlockLength, _Bin2} = read_block_length(Bin1),
-    {NetworkID,
-     BlockLength}.
+    {_NetworkID, Bin1} = read_network_id(Bin),
+    {_BlockLength, Bin2} = read_block_length(Bin1),
+    {BlockFormatVersion, _Bin3} = read_block_format_version(Bin2),
+    BlockFormatVersion.
