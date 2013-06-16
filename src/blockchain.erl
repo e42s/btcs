@@ -103,6 +103,28 @@ read_timestamp(Bin, Option) ->
             error_reading_timestamp
     end.
     
+read_bits(Bin, Option) ->
+    %% 4 bytes (The calculated difficulty target being used for this block)
+    %% The target is a 256-bit number (extremely large) that all
+    %% Bitcoin clients share. The SHA-256 hash of a block's header
+    %% must be lower than or equal to the current target for the block
+    %% to be accepted by the network. The lower the target, the more
+    %% difficult it is to generate a block.
+
+    %% Genesis block: 486604799
+    case Bin of
+        <<BitsBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {BitsBin, Rest};
+                decimal ->
+                    <<Bits:32/integer-little>> = BitsBin,
+                    {Bits, Rest}
+            end;
+        _ ->
+            error_reading_bits
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID, Bin1} = read_network_id(Bin),
@@ -110,8 +132,9 @@ go() ->
     {_BlockFormatVersion, Bin3} = read_block_format_version(Bin2),
     {_HashOfPreviousBlock, Bin4} = read_hash_of_previous_block(Bin3),
     {_HashOfMerkleTree, Bin5} = read_hash_of_merkle_tree(Bin4, raw),
-    {TS, _Bin6} = read_timestamp(Bin5, decimal),
-    TS.
+    {_TS, Bin6} = read_timestamp(Bin5, decimal),
+    {Bits, _Bin7} = read_bits(Bin6, decimal),
+    Bits.
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
