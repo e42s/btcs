@@ -378,7 +378,18 @@ read_response_script_length(Bin, Option, StorageLength) ->
             end
     end.
 
+read_response_script(Bin, ScriptLength, Option) ->
+    %% Forth script
 
+    %% The script can be used to insert messages into the blockchain.
+    %% It's a privilege of being the one to mine the block.
+    case Bin of
+        <<ScriptBin:ScriptLength/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {ScriptBin, Rest}
+            end
+    end.
 
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
@@ -395,9 +406,10 @@ go() ->
     {_IC,            Bin11} = read_input_count(Bin10, decimal),
     {_HashOfInputTXBin, Bin12} = read_hash_of_input_transaction(Bin11, raw),
     {_ITI, Bin13} = read_input_transaction_index(Bin12, raw),
-    {RSL, _Bin14} = read_response_script_length(Bin13, decimal),
-    RSL.
-    %%binary_to_hex_string(RSL).
+    {RSL, Bin14} = read_response_script_length(Bin13, decimal),
+    {ScriptBin, _Bin15} = read_response_script(Bin14, RSL, raw),
+    %%binary_to_hex_string(ScriptBin).
+    io:format("~s~n", [binary_to_list(ScriptBin)]).
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
