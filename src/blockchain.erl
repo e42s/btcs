@@ -235,7 +235,6 @@ read_transaction_version_number(Bin, Option) ->
             error_reading_transaction_version_number
     end.
 
-%%---------------
 read_input_count(Bin, Option) ->
     %% Also a variable length integer
     case Bin of
@@ -293,7 +292,18 @@ read_input_count(Bin, Option, StorageLength) ->
                     error_reading_input_count_when_storage_length_is_9
             end
     end.
-%%-------------
+
+read_hash_of_input_transaction(Bin, Option) ->
+    %% 32 bytes
+    case Bin of
+        <<HashOfInputTXBin:32/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {HashOfInputTXBin, Rest}
+            end;
+        _ ->
+            error_reading_hash_of_input_transaction
+    end.
 
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
@@ -307,8 +317,9 @@ go() ->
     {_NonceBin,            Bin8} = read_nonce(Bin7, raw),
     {_TransactionCount,     Bin9} = read_transaction_count(Bin8, decimal),
     {_TVN,                  Bin10} = read_transaction_version_number(Bin9, decimal),
-    {IC,            _Bin11} = read_input_count(Bin10, decimal),
-    IC.
+    {_IC,            Bin11} = read_input_count(Bin10, decimal),
+    {HashOfInputTXBin, _Bin12} = read_hash_of_input_transaction(Bin11, raw),
+    binary_to_hex_string(HashOfInputTXBin).
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
