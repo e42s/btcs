@@ -547,6 +547,18 @@ read_pk_script_length(Bin, Option, StorageLength) ->
             end
     end.
 
+read_pk_script(Bin, ScriptLength, Option) ->
+    %% Satoshi's first Bitcoin address:
+    %%   1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
+    
+    case Bin of
+        <<ScriptBin:ScriptLength/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {ScriptBin, Rest}
+            end
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -567,9 +579,9 @@ go() ->
     {_SequenceNumberBin, Bin16} = read_sequence_number(Bin15, raw),
     {_OutputCount, Bin17} = read_output_count(Bin16, decimal),
     {_OutputValue, Bin18} = read_output_value(Bin17, decimal),
-    {PKL, _Bin19} = read_pk_script_length(Bin18, decimal),
-    PKL.
-    %%binary_to_hex_string(SequenceNumberBin).
+    {PKL, Bin19} = read_pk_script_length(Bin18, decimal),
+    {PKSBin, _Bin20} = read_pk_script(Bin19, PKL, raw),
+    binary_to_hex_string(PKSBin).
 
 
 binary_to_hex_string(Bin) ->
