@@ -577,35 +577,129 @@ read_lock_time(Bin, Option) ->
             error
     end.
 
-read_a_block(Bin, BlockID) ->
-    {_NetworkID,           Bin1} = read_network_id(Bin),
-    {_BlockLength,         Bin2} = read_block_length(Bin1),
-    {_BlockFormatVersion,  Bin3} = read_block_format_version(Bin2),
-    {_HashOfPreviousBlock, Bin4} = read_hash_of_previous_block(Bin3),
-    {_HashOfMerkleTree,    Bin5} = read_hash_of_merkle_tree(Bin4, raw),
-    {_TS,                  Bin6} = read_timestamp(Bin5, decimal),
-    {_Bits,                Bin7} = read_bits(Bin6, decimal),
-    {_NonceBin,            Bin8} = read_nonce(Bin7, raw),
-    {_TransactionCount,    Bin9} = read_transaction_count(Bin8, decimal),
-    {_TVN,                 Bin10} = read_transaction_version_number(Bin9, decimal),
-    {_IC,                  Bin11} = read_input_count(Bin10, decimal),
-    {_HashOfInputTXBin,    Bin12} = read_hash_of_input_transaction(Bin11, raw),
-    {_ITI,                 Bin13} = read_input_transaction_index(Bin12, raw),
-    {RSL,                  Bin14} = read_response_script_length(Bin13, decimal),
-    {_ScriptBin,           Bin15} = read_response_script(Bin14, RSL, raw),
-    {_SequenceNumberBin,   Bin16} = read_sequence_number(Bin15, raw),
-    {_OutputCount,         Bin17} = read_output_count(Bin16, decimal),
-    {_OutputValue,         Bin18} = read_output_value(Bin17, decimal),
-    {PKL,                  Bin19} = read_pk_script_length(Bin18, decimal),
-    {_PKSBin,              Bin20} = read_pk_script(Bin19, PKL, raw),
-    {_LockTime,            Bin21} = read_lock_time(Bin20, decimal),
+read_a_transaction(Bin) ->
+    {TransactionVersionNumber, Bin10} = read_transaction_version_number(Bin, decimal),
+    {InputCount,               Bin11} = read_input_count(Bin10, decimal),
+    {HashOfInputTXBin,         Bin12} = read_hash_of_input_transaction(Bin11, raw),
+    {TransactionIndex,         Bin13} = read_input_transaction_index(Bin12, raw),
+    {ResponseScriptLength,     Bin14} = read_response_script_length(Bin13, decimal),
+    {ScriptBin,                Bin15} = read_response_script(Bin14, ResponseScriptLength, raw),
+    {SequenceNumberBin,        Bin16} = read_sequence_number(Bin15, raw),
+    {OutputCount,              Bin17} = read_output_count(Bin16, decimal),
+    {OutputValue,              Bin18} = read_output_value(Bin17, decimal),
+    {PKScriptLength,           Bin19} = read_pk_script_length(Bin18, decimal),
+    {PKScriptBin,              Bin20} = read_pk_script(Bin19, PKScriptLength, raw),
+    {LockTime,                 Bin21} = read_lock_time(Bin20, decimal),
+    Result = {
+      {transaction_version_number, TransactionVersionNumber},
+      {input_count,                InputCount},
+      {hash_of_input_tx_bin,       HashOfInputTXBin},
+      {transaction_index,          TransactionIndex},
+      {response_script_length,     ResponseScriptLength},
+      {script_bin,                 ScriptBin},
+      {sequence_number_bin,        SequenceNumberBin},
+      {output_count,               OutputCount},
+      {output_value,               OutputValue},
+      {pk_script_length,           PKScriptLength},
+      {pk_script_bin,              PKScriptBin},
+      {lock_time,                  LockTime}
+     },
+    {Result, Bin21}.
 
-    Result = BlockID,
+read_a_block(Bin, BlockID) ->
+    %% Block structure
+    %%   1, [ 4 bytes] Magic no, value always 0xD9B4BEF9
+    %%   2, [ 4 bytes] Blocksize, number of bytes following up to end of block
+    %%   3, [80 bytes] Blockheader, consists of 6 items
+    %%     3.1, [ 4 bytes] Block version number
+    %%     3.2, [32 bytes] HashPrevBlock
+    %%     3.3, [32 bytes] HashMerkleRoot
+    %%     3.4, [ 4 bytes] TimeStamp
+    %%     3.5, [ 4 bytes] Bits, 4 bytes
+    %%     3.6, [ 4 bytes] Nonce, 32-bit number (starts at 0), 4 bytes
+    %%   4, [ 1~9 bytes] Transaction counter
+    %%   5, [many bytes] A Transaction
+    %%     5.1, [  4 bytes] Transaction data format version
+    %%     5.2, [1~9 bytes] Number of Transaction inputs 
+    %%     5.3, [41+ bytes] A list of 1 or more transaction inputs or sources for coins
+    %%       5.3.1, []
+    %%     _5.4, [4 bytes] Input transaction index
+    %%     _5.5, [1~9 bytes] Response script length
+    %%     _5.6, [] Response script
+    %%     _5.7, [4 bytes] Sequence number
+    %%     5.8, [1~9 bytes] Number of Transaction outputs
+    %%     5.9, [ 9+ bytes] A list of 1 or more transaction outputs or destinations for coins 
+    %%     _5.10, [] PK script length
+    %%     _5.11, [] PK script
+    %%     5.12, [4 bytes] Lock time, The block number or timestamp at which this transaction is locked
+    %%   6, (might be more)
+
+    %% Ref:
+    %%   https://en.bitcoin.it/wiki/Blocks
+    %%   https://en.bitcoin.it/wiki/Block_hashing_algorithm
+    %%   https://en.bitcoin.it/wiki/Protocol_specification
+    
+    {NetworkID,                Bin1} = read_network_id(Bin),
+    {BlockLength,              Bin2} = read_block_length(Bin1),
+
+    %% Blockheader begins
+    {BlockFormatVersion,       Bin3} = read_block_format_version(Bin2),
+    {HashOfPreviousBlock,      Bin4} = read_hash_of_previous_block(Bin3),
+    {HashOfMerkleTree,         Bin5} = read_hash_of_merkle_tree(Bin4, raw),
+    {TimeStamp,                Bin6} = read_timestamp(Bin5, decimal),
+    {Bits,                     Bin7} = read_bits(Bin6, decimal),
+    {NonceBin,                 Bin8} = read_nonce(Bin7, raw),
+    %% Blockheader ends
+
+    {TransactionCount,         Bin9} = read_transaction_count(Bin8, decimal),
+
+    %% List of transactions begins
+    %% One transaction begins
+    {TransactionVersionNumber, Bin10} = read_transaction_version_number(Bin9, decimal),
+    {InputCount,               Bin11} = read_input_count(Bin10, decimal),
+    {HashOfInputTXBin,         Bin12} = read_hash_of_input_transaction(Bin11, raw),
+    {TransactionIndex,         Bin13} = read_input_transaction_index(Bin12, raw),
+    {ResponseScriptLength,     Bin14} = read_response_script_length(Bin13, decimal),
+    {ScriptBin,                Bin15} = read_response_script(Bin14, ResponseScriptLength, raw),
+    {SequenceNumberBin,        Bin16} = read_sequence_number(Bin15, raw),
+    {OutputCount,              Bin17} = read_output_count(Bin16, decimal),
+    {OutputValue,              Bin18} = read_output_value(Bin17, decimal),
+    {PKScriptLength,           Bin19} = read_pk_script_length(Bin18, decimal),
+    {PKScriptBin,              Bin20} = read_pk_script(Bin19, PKScriptLength, raw),
+    {LockTime,                 Bin21} = read_lock_time(Bin20, decimal),
+    %% One transaction ends
+    %% ... (more transactions) ...
+    %% List of transactions ends
+
+    Result =
+        {{block_id,                   BlockID},
+         {network_id,                 NetworkID},
+         {block_length,               BlockLength},
+         {block_format_version,       BlockFormatVersion},
+         {hash_of_previous_block,     HashOfPreviousBlock},
+         {hash_of_merkle_tree,        HashOfMerkleTree},
+         {timestamp,                  TimeStamp},
+         {bits,                       Bits},
+         {nonce_bin,                  NonceBin},
+         {transaction_count,          TransactionCount},
+         {transaction_version_number, TransactionVersionNumber},
+         {input_count,                InputCount},
+         {hash_of_input_tx_bin,       HashOfInputTXBin},
+         {transaction_index,          TransactionIndex},
+         {response_script_length,     ResponseScriptLength},
+         {script_bin,                 ScriptBin},
+         {sequence_number_bin,        SequenceNumberBin},
+         {output_count,               OutputCount},
+         {output_value,               OutputValue},
+         {pk_script_length,           PKScriptLength},
+         {pk_script_bin,              PKScriptBin},
+         {lock_time,                  LockTime}
+        },
     {Result, Bin21}.
     
 go(N) ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
-    Rest = go(Bin, N, 1),
+    Rest = go(Bin, N, 0),
     {size(Rest), Rest}.
 
 go(Bin, N, BID) ->
