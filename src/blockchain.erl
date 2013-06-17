@@ -410,6 +410,64 @@ read_sequence_number(Bin, Option) ->
             end
     end.
 
+read_output_count(Bin, Option) ->
+    %% Also a variable length integer
+    case Bin of
+        <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
+            read_output_count(Bin, Option, 1);
+        <<16#FD:8/integer, _/binary>> ->
+            read_output_count(Bin, Option, 3);
+        <<16#FE:8/integer, _/binary>> ->
+            read_output_count(Bin, Option, 5);
+        <<16#FF:8/integer, _/binary>> ->
+            read_output_count(Bin, Option, 9);
+        _ ->
+            error
+    end.
+read_output_count(Bin, Option, StorageLength) ->
+    case StorageLength of
+        1 ->
+            case Bin of
+                <<CountBin:1/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:8/integer>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_output_count_when_storage_length_is_1
+            end;
+        3 ->
+            case Bin of
+                <<16#FD, CountBin:2/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:16/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_output_count_when_storage_length_is_3
+            end;
+        5 ->
+            case Bin of
+                <<16#FE, CountBin:4/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:32/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_output_count_when_storage_length_is_5
+            end;
+        9 ->
+            case Bin of
+                <<16#FF, CountBin:8/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:64/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_output_count_when_storage_length_is_9
+            end
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -427,8 +485,10 @@ go() ->
     {_ITI, Bin13} = read_input_transaction_index(Bin12, raw),
     {RSL, Bin14} = read_response_script_length(Bin13, decimal),
     {_ScriptBin, Bin15} = read_response_script(Bin14, RSL, raw),
-    {SequenceNumberBin, _Bin16} = read_sequence_number(Bin15, raw),
-    binary_to_hex_string(SequenceNumberBin).
+    {_SequenceNumberBin, Bin16} = read_sequence_number(Bin15, raw),
+    {OutputCount, _Bin17} = read_output_count(Bin16, decimal),
+    OutputCount.
+    %%binary_to_hex_string(SequenceNumberBin).
 
 
 binary_to_hex_string(Bin) ->
