@@ -235,6 +235,66 @@ read_transaction_version_number(Bin, Option) ->
             error_reading_transaction_version_number
     end.
 
+%%---------------
+read_input_count(Bin, Option) ->
+    %% Also a variable length integer
+    case Bin of
+        <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
+            read_input_count(Bin, Option, 1);
+        <<16#FD:8/integer, _/binary>> ->
+            read_input_count(Bin, Option, 3);
+        <<16#FE:8/integer, _/binary>> ->
+            read_input_count(Bin, Option, 5);
+        <<16#FF:8/integer, _/binary>> ->
+            read_input_count(Bin, Option, 9);
+        _ ->
+            error_decoding_length_of_transaction_count
+    end.
+read_input_count(Bin, Option, StorageLength) ->
+    case StorageLength of
+        1 ->
+            case Bin of
+                <<CountBin:1/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:8/integer>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_input_count_when_storage_length_is_1
+            end;
+        3 ->
+            case Bin of
+                <<16#FD, CountBin:2/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:16/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_input_count_when_storage_length_is_3
+            end;
+        5 ->
+            case Bin of
+                <<16#FE, CountBin:4/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:32/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_input_count_when_storage_length_is_5
+            end;
+        9 ->
+            case Bin of
+                <<16#FF, CountBin:8/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:64/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_input_count_when_storage_length_is_9
+            end
+    end.
+%%-------------
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -246,8 +306,9 @@ go() ->
     {_Bits,                Bin7} = read_bits(Bin6, decimal),
     {_NonceBin,            Bin8} = read_nonce(Bin7, raw),
     {_TransactionCount,     Bin9} = read_transaction_count(Bin8, decimal),
-    {TVN,  _Bin10} = read_transaction_version_number(Bin9, decimal),
-    TVN.
+    {_TVN,                  Bin10} = read_transaction_version_number(Bin9, decimal),
+    {IC,            _Bin11} = read_input_count(Bin10, decimal),
+    IC.
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
