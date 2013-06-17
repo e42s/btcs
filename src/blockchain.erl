@@ -146,17 +146,92 @@ read_nonce(Bin, Option) ->
             error_reading_nonce
     end.
 
+read_transaction_count(Bin, Option) ->
+    %% Transaction count is a variable length integer representing the
+    %% number of transactions in this block.
+
+    %% A maximum of 8 bytes are available for it.
+    %% Maximum number of transactions in a block: 2^64
+
+    %% A block can never have zero transactions; at the very least
+    %% there will always be one generating the block reward.
+
+    %% Satoshi client code it refers to this as a "CompactSize".
+    
+    %% Encoding:
+    %%   Value         Storage Length   Format
+    %%   <  0xFD           1            uint8_t
+    %%   <= 0xFFFF         3            0xfd followed by the length as uint16_t
+    %%   <= 0xFFFFFFFF     5            0xfe followed by the length as uint32_t
+    %%   -                 9            0xff followed by the length as uint64_t
+    case Bin of
+        <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
+            read_transaction_count(Bin, Option, 1);
+        <<16#FD:8/integer, _/binary>> ->
+            read_transaction_count(Bin, Option, 3);
+        <<16#FE:8/integer, _/binary>> ->
+            read_transaction_count(Bin, Option, 5);
+        <<16#FF:8/integer, _/binary>> ->
+            read_transaction_count(Bin, Option, 9);
+        _ ->
+            error_decoding_length_of_transaction_count
+    end.
+read_transaction_count(Bin, Option, StorageLength) ->
+    case StorageLength of
+        1 ->
+            case Bin of
+                <<CountBin:1/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:8/integer>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_1
+            end;
+        3 ->
+            case Bin of
+                <<16#FD, CountBin:2/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:16/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_3
+            end;
+        5 ->
+            case Bin of
+                <<16#FE, CountBin:4/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:32/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_5
+            end;
+        9 ->
+            case Bin of
+                <<16#FF, CountBin:8/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:64/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_9
+            end
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
-    {_NetworkID, Bin1} = read_network_id(Bin),
-    {_BlockLength, Bin2} = read_block_length(Bin1),
-    {_BlockFormatVersion, Bin3} = read_block_format_version(Bin2),
+    {_NetworkID,           Bin1} = read_network_id(Bin),
+    {_BlockLength,         Bin2} = read_block_length(Bin1),
+    {_BlockFormatVersion,  Bin3} = read_block_format_version(Bin2),
     {_HashOfPreviousBlock, Bin4} = read_hash_of_previous_block(Bin3),
-    {_HashOfMerkleTree, Bin5} = read_hash_of_merkle_tree(Bin4, raw),
-    {_TS, Bin6} = read_timestamp(Bin5, decimal),
-    {_Bits, Bin7} = read_bits(Bin6, decimal),
-    {NonceBin, _Bin8} = read_nonce(Bin7, raw),
-    binary_to_hex_string(NonceBin).
+    {_HashOfMerkleTree,    Bin5} = read_hash_of_merkle_tree(Bin4, raw),
+    {_TS,                  Bin6} = read_timestamp(Bin5, decimal),
+    {_Bits,                Bin7} = read_bits(Bin6, decimal),
+    {_NonceBin,            Bin8} = read_nonce(Bin7, raw),
+    {TransactionCount,     _Bin9} = read_transaction_count(Bin8, decimal),
+    TransactionCount.
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
