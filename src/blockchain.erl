@@ -577,8 +577,7 @@ read_lock_time(Bin, Option) ->
             error
     end.
 
-go() ->
-    {ok, Bin} = file:read_file("blocks/blk00000.dat"),
+read_a_block(Bin, BlockID) ->
     {_NetworkID,           Bin1} = read_network_id(Bin),
     {_BlockLength,         Bin2} = read_block_length(Bin1),
     {_BlockFormatVersion,  Bin3} = read_block_format_version(Bin2),
@@ -587,21 +586,44 @@ go() ->
     {_TS,                  Bin6} = read_timestamp(Bin5, decimal),
     {_Bits,                Bin7} = read_bits(Bin6, decimal),
     {_NonceBin,            Bin8} = read_nonce(Bin7, raw),
-    {_TransactionCount,     Bin9} = read_transaction_count(Bin8, decimal),
-    {_TVN,                  Bin10} = read_transaction_version_number(Bin9, decimal),
-    {_IC,            Bin11} = read_input_count(Bin10, decimal),
-    {_HashOfInputTXBin, Bin12} = read_hash_of_input_transaction(Bin11, raw),
-    {_ITI, Bin13} = read_input_transaction_index(Bin12, raw),
-    {RSL, Bin14} = read_response_script_length(Bin13, decimal),
-    {_ScriptBin, Bin15} = read_response_script(Bin14, RSL, raw),
-    {_SequenceNumberBin, Bin16} = read_sequence_number(Bin15, raw),
-    {_OutputCount, Bin17} = read_output_count(Bin16, decimal),
-    {_OutputValue, Bin18} = read_output_value(Bin17, decimal),
-    {PKL, Bin19} = read_pk_script_length(Bin18, decimal),
-    {_PKSBin, Bin20} = read_pk_script(Bin19, PKL, raw),
-    {LockTime, _Bin21} = read_lock_time(Bin20, decimal),
+    {_TransactionCount,    Bin9} = read_transaction_count(Bin8, decimal),
+    {_TVN,                 Bin10} = read_transaction_version_number(Bin9, decimal),
+    {_IC,                  Bin11} = read_input_count(Bin10, decimal),
+    {_HashOfInputTXBin,    Bin12} = read_hash_of_input_transaction(Bin11, raw),
+    {_ITI,                 Bin13} = read_input_transaction_index(Bin12, raw),
+    {RSL,                  Bin14} = read_response_script_length(Bin13, decimal),
+    {_ScriptBin,           Bin15} = read_response_script(Bin14, RSL, raw),
+    {_SequenceNumberBin,   Bin16} = read_sequence_number(Bin15, raw),
+    {_OutputCount,         Bin17} = read_output_count(Bin16, decimal),
+    {_OutputValue,         Bin18} = read_output_value(Bin17, decimal),
+    {PKL,                  Bin19} = read_pk_script_length(Bin18, decimal),
+    {_PKSBin,              Bin20} = read_pk_script(Bin19, PKL, raw),
+    {_LockTime,            Bin21} = read_lock_time(Bin20, decimal),
+
+    Result = BlockID,
+    {Result, Bin21}.
+    
+go(N) ->
+    {ok, Bin} = file:read_file("blocks/blk00000.dat"),
+    Rest = go(Bin, N, 1),
+    {size(Rest), Rest}.
+
+go(Bin, N, BID) ->
+    case N of
+        0 -> Bin;
+        _ ->
+            {Result, Bin1} = read_a_block(Bin, BID),
+            if
+                N == 1 ->
+                    io:format("~p~n", [Result]);
+                true ->
+                    ok
+            end,
+            go(Bin1, N-1, BID+1)
+    end.
+    
     %%binary_to_hex_string(PKSBin).
-    LockTime.
+
 
 
 binary_to_hex_string(Bin) ->
