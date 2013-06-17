@@ -559,6 +559,24 @@ read_pk_script(Bin, ScriptLength, Option) ->
             end
     end.
 
+read_lock_time(Bin, Option) ->
+    %% 4 bytes
+
+    %% All transactions currently set this to zero as the feature is
+    %% not currently implemented.
+    case Bin of
+        <<LockTimeBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {LockTimeBin, Rest};
+                decimal ->
+                    <<LockTime:32/integer-little>> = LockTimeBin,
+                    {LockTime, Rest}
+            end;
+        _ ->
+            error
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -580,8 +598,10 @@ go() ->
     {_OutputCount, Bin17} = read_output_count(Bin16, decimal),
     {_OutputValue, Bin18} = read_output_value(Bin17, decimal),
     {PKL, Bin19} = read_pk_script_length(Bin18, decimal),
-    {PKSBin, _Bin20} = read_pk_script(Bin19, PKL, raw),
-    binary_to_hex_string(PKSBin).
+    {_PKSBin, Bin20} = read_pk_script(Bin19, PKL, raw),
+    {LockTime, _Bin21} = read_lock_time(Bin20, decimal),
+    %%binary_to_hex_string(PKSBin).
+    LockTime.
 
 
 binary_to_hex_string(Bin) ->
