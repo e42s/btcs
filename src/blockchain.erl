@@ -220,6 +220,21 @@ read_transaction_count(Bin, Option, StorageLength) ->
             end
     end.
 
+read_transaction_version_number(Bin, Option) ->
+    %% 4 bytes
+    case Bin of
+        <<TransactionVersionBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {TransactionVersionBin, Rest};
+                decimal ->
+                    <<TransactionVersion:32/integer-little>> = TransactionVersionBin,
+                    {TransactionVersion, Rest}
+            end;
+        _ ->
+            error_reading_transaction_version_number
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -230,8 +245,9 @@ go() ->
     {_TS,                  Bin6} = read_timestamp(Bin5, decimal),
     {_Bits,                Bin7} = read_bits(Bin6, decimal),
     {_NonceBin,            Bin8} = read_nonce(Bin7, raw),
-    {TransactionCount,     _Bin9} = read_transaction_count(Bin8, decimal),
-    TransactionCount.
+    {_TransactionCount,     Bin9} = read_transaction_count(Bin8, decimal),
+    {TVN,  _Bin10} = read_transaction_version_number(Bin9, decimal),
+    TVN.
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
