@@ -489,6 +489,64 @@ read_output_value(Bin, Option) ->
             error
     end.
 
+read_pk_script_length(Bin, Option) ->
+    %% Also a variable length integer
+    case Bin of
+        <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
+            read_pk_script_length(Bin, Option, 1);
+        <<16#FD:8/integer, _/binary>> ->
+            read_pk_script_length(Bin, Option, 3);
+        <<16#FE:8/integer, _/binary>> ->
+            read_pk_script_length(Bin, Option, 5);
+        <<16#FF:8/integer, _/binary>> ->
+            read_pk_script_length(Bin, Option, 9);
+        _ ->
+            error
+    end.
+read_pk_script_length(Bin, Option, StorageLength) ->
+    case StorageLength of
+        1 ->
+            case Bin of
+                <<CountBin:1/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:8/integer>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_pk_script_length_when_storage_length_is_1
+            end;
+        3 ->
+            case Bin of
+                <<16#FD, CountBin:2/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:16/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_pk_script_length_when_storage_length_is_3
+            end;
+        5 ->
+            case Bin of
+                <<16#FE, CountBin:4/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:32/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_pk_script_length_when_storage_length_is_5
+            end;
+        9 ->
+            case Bin of
+                <<16#FF, CountBin:8/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:64/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_pk_script_length_when_storage_length_is_9
+            end
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -508,8 +566,9 @@ go() ->
     {_ScriptBin, Bin15} = read_response_script(Bin14, RSL, raw),
     {_SequenceNumberBin, Bin16} = read_sequence_number(Bin15, raw),
     {_OutputCount, Bin17} = read_output_count(Bin16, decimal),
-    {OutputValue, _Bin18} = read_output_value(Bin17, decimal),
-    OutputValue.
+    {_OutputValue, Bin18} = read_output_value(Bin17, decimal),
+    {PKL, _Bin19} = read_pk_script_length(Bin18, decimal),
+    PKL.
     %%binary_to_hex_string(SequenceNumberBin).
 
 
