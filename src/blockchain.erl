@@ -391,6 +391,25 @@ read_response_script(Bin, ScriptLength, Option) ->
             end
     end.
 
+read_sequence_number(Bin, Option) ->
+    %% The "sequence number" supports the transaction replacement
+    %% feature. The idea is that you broadcast a transaction with a
+    %% lock time at some point in the future. You are then free to
+    %% broadcast replacement transactions (with higher sequence
+    %% numbers) until that time. If you want to lock the transaction
+    %% permanently, the client will set the sequence number to
+    %% 0xffffffff, the largest 4-byte integer. However, the whole
+    %% transaction replacement and locking feature simply isn't used
+    %% in any client yet, so all transactions are broadcast locked by
+    %% default.
+    case Bin of
+        <<SequenceNumberBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {SequenceNumberBin, Rest}
+            end
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -407,9 +426,10 @@ go() ->
     {_HashOfInputTXBin, Bin12} = read_hash_of_input_transaction(Bin11, raw),
     {_ITI, Bin13} = read_input_transaction_index(Bin12, raw),
     {RSL, Bin14} = read_response_script_length(Bin13, decimal),
-    {ScriptBin, _Bin15} = read_response_script(Bin14, RSL, raw),
-    %%binary_to_hex_string(ScriptBin).
-    io:format("~s~n", [binary_to_list(ScriptBin)]).
+    {_ScriptBin, Bin15} = read_response_script(Bin14, RSL, raw),
+    {SequenceNumberBin, _Bin16} = read_sequence_number(Bin15, raw),
+    binary_to_hex_string(SequenceNumberBin).
+
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
