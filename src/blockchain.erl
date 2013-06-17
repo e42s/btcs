@@ -125,6 +125,27 @@ read_bits(Bin, Option) ->
             error_reading_bits
     end.
 
+read_nonce(Bin, Option) ->
+    %% 4 bytes
+
+    %% A nonce is a random number generated during the mining
+    %% process. To successfully mine a block, the header is hashed. If
+    %% the resulting hash value is not less than or equal to the
+    %% target, the nonce is incremented and the hash is computed
+    %% again.
+    case Bin of
+        <<NonceBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {NonceBin, Rest};
+                decimal ->
+                    <<Nonce:32/integer-little>> = NonceBin,
+                    {Nonce, Rest}
+            end;
+        _ ->
+            error_reading_nonce
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID, Bin1} = read_network_id(Bin),
@@ -133,8 +154,9 @@ go() ->
     {_HashOfPreviousBlock, Bin4} = read_hash_of_previous_block(Bin3),
     {_HashOfMerkleTree, Bin5} = read_hash_of_merkle_tree(Bin4, raw),
     {_TS, Bin6} = read_timestamp(Bin5, decimal),
-    {Bits, _Bin7} = read_bits(Bin6, decimal),
-    Bits.
+    {_Bits, Bin7} = read_bits(Bin6, decimal),
+    {NonceBin, _Bin8} = read_nonce(Bin7, raw),
+    binary_to_hex_string(NonceBin).
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
