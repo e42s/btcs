@@ -468,6 +468,27 @@ read_output_count(Bin, Option, StorageLength) ->
             end
     end.
 
+read_output_value(Bin, Option) ->
+    %% 8 bytes
+    %% It's the number of base units, as one bitcoin is 100000000 base units.
+
+    %% This field is a fixed 8 bytes, which is what sets the maximum
+    %% divisibility of a bitcoin. If a single bitcoin ever became so
+    %% valuable that the granularity of individual base units became
+    %% too coarse, this is the field that would need updating.
+    case Bin of
+        <<OutputValueBin:8/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {OutputValueBin, Rest};
+                decimal ->
+                    <<OutputValue:64/integer-little>> = OutputValueBin,
+                    {OutputValue, Rest}
+            end;
+        _ ->
+            error
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -486,8 +507,9 @@ go() ->
     {RSL, Bin14} = read_response_script_length(Bin13, decimal),
     {_ScriptBin, Bin15} = read_response_script(Bin14, RSL, raw),
     {_SequenceNumberBin, Bin16} = read_sequence_number(Bin15, raw),
-    {OutputCount, _Bin17} = read_output_count(Bin16, decimal),
-    OutputCount.
+    {_OutputCount, Bin17} = read_output_count(Bin16, decimal),
+    {OutputValue, _Bin18} = read_output_value(Bin17, decimal),
+    OutputValue.
     %%binary_to_hex_string(SequenceNumberBin).
 
 
