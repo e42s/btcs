@@ -305,6 +305,21 @@ read_hash_of_input_transaction(Bin, Option) ->
             error_reading_hash_of_input_transaction
     end.
 
+read_input_transaction_index(Bin, Option) ->
+    %% 4 bytes
+    case Bin of
+        <<InputTXIndexBin:4/binary, Rest/binary>> ->
+            case Option of
+                raw ->
+                    {InputTXIndexBin, Rest};
+                decimal ->
+                    <<InputTXIndex:32/integer-little>> = InputTXIndexBin,
+                    {InputTXIndex, Rest}
+            end;
+        _ ->
+            error_reading_input_transaction_index
+    end.
+
 go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
     {_NetworkID,           Bin1} = read_network_id(Bin),
@@ -318,8 +333,10 @@ go() ->
     {_TransactionCount,     Bin9} = read_transaction_count(Bin8, decimal),
     {_TVN,                  Bin10} = read_transaction_version_number(Bin9, decimal),
     {_IC,            Bin11} = read_input_count(Bin10, decimal),
-    {HashOfInputTXBin, _Bin12} = read_hash_of_input_transaction(Bin11, raw),
-    binary_to_hex_string(HashOfInputTXBin).
+    {_HashOfInputTXBin, Bin12} = read_hash_of_input_transaction(Bin11, raw),
+    {ITI, _Bin13} = read_input_transaction_index(Bin12, raw),
+
+    binary_to_hex_string(ITI).
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
