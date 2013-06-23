@@ -1,9 +1,62 @@
 -module(blockchain).
--compile(export_all).
+%% Top level
+-export([read_a_raw_block/1]).
 
-%% The first block in the blockchain contains 285 bytes.
+%% Before a block
+-export([read_magic_bytes/1,
+         read_block_size/1,
+         read_block_data/2]).
 
-read_network_id(Bin) ->
+%% Inside a block
+-export([read_block_header/1,
+         read_tx_count/2,
+         read_tx_list/2]).
+
+%% Inside a block header
+-export([read_block_format_ver/1,
+         read_hash_of_prev_block/1,
+         read_hash_of_merkle_root/2,
+         read_timestamp/2,
+         read_bits/2,
+         read_nonce/2]).
+
+%% Inside a transaction list
+-export([read_a_tx/1]).
+
+%% Inside a transaction
+-export([read_tx_ver/2,
+         read_input_count/2,
+         read_hash_of_input_tx/2,
+         read_input_tx_index/2,
+         read_response_script_size/2,
+         read_response_script/3,
+         read_sequence_num/2,
+         read_output_count/2,
+         read_output_value/2,
+         read_pk_script_size/2,
+         read_pk_script/3,
+         read_lock_time/2]).
+
+%% For testing
+-export([go/0]).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Top level
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+read_a_raw_block(Bin) ->
+    {_MagicBytes, Bin1} = read_magic_bytes(Bin),
+    {BlockSize, Bin2} = read_block_size(Bin1),
+    {_BlockDataBin, Bin3} = read_block_data(Bin2, BlockSize),
+
+    Result = {BlockSize},
+    {Result, Bin3}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Before a block
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+read_magic_bytes(Bin) ->
     %% 4 bytes
     %% The magic network ID is sent over wire as:
     %%                   249,     190,     180,     217
@@ -22,10 +75,10 @@ read_network_id(Bin) ->
             <<NetworkID:32/integer-little>> = NetworkIDBin,
             {NetworkID, Rest};
         _ ->
-            error_reading_network_id
+            error_reading_magic_bytes
     end.
 
-read_block_length(Bin) ->
+read_block_size(Bin) ->
     %% 4 bytes
     %% 2^32 bytes is about 4GB
     %% The current client will not accept blocks larger than 1MB.
@@ -37,7 +90,103 @@ read_block_length(Bin) ->
             error_reading_block_length
     end.
 
-read_block_format_version(Bin) ->
+read_block_data(Bin, BlockSize) ->
+    case Bin of
+        <<BlockDataBin:BlockSize/binary, Rest/binary>> ->
+            {BlockDataBin, Rest};
+        _ ->
+            error
+    end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Inside a block
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+read_block_header(Bin) ->
+    ok.
+
+read_tx_count(Bin, Option) ->
+    %% Transaction count is a variable length integer representing the
+    %% number of transactions in this block.
+
+    %% A maximum of 8 bytes are available for it.
+    %% Maximum number of transactions in a block: 2^64
+
+    %% A block can never have zero transactions; at the very least
+    %% there will always be one generating the block reward.
+
+    %% Satoshi client code it refers to this as a "CompactSize".
+    
+    %% Encoding:
+    %%   Value         Storage Length   Format
+    %%   <  0xFD           1            uint8_t
+    %%   <= 0xFFFF         3            0xfd followed by the length as uint16_t
+    %%   <= 0xFFFFFFFF     5            0xfe followed by the length as uint32_t
+    %%   -                 9            0xff followed by the length as uint64_t
+    case Bin of
+        <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
+            read_tx_count(Bin, Option, 1);
+        <<16#FD:8/integer, _/binary>> ->
+            read_tx_count(Bin, Option, 3);
+        <<16#FE:8/integer, _/binary>> ->
+            read_tx_count(Bin, Option, 5);
+        <<16#FF:8/integer, _/binary>> ->
+            read_tx_count(Bin, Option, 9);
+        _ ->
+            error_decoding_length_of_tx_count
+    end.
+read_tx_count(Bin, Option, StorageLength) ->
+    case StorageLength of
+        1 ->
+            case Bin of
+                <<CountBin:1/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:8/integer>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_1
+            end;
+        3 ->
+            case Bin of
+                <<16#FD, CountBin:2/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:16/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_3
+            end;
+        5 ->
+            case Bin of
+                <<16#FE, CountBin:4/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:32/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_5
+            end;
+        9 ->
+            case Bin of
+                <<16#FF, CountBin:8/binary, Rest/binary>> ->
+                    case Option of
+                        raw -> {CountBin, Rest};
+                        decimal -> <<Count:64/integer-little>> = CountBin, {Count, Rest}
+                    end;
+                _ ->
+                    error_reading_transaction_count_when_storage_length_is_9
+            end
+    end.
+
+read_tx_list(Bin, TXCount) ->
+    ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Inside a block header
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+read_block_format_ver(Bin) ->
     %% 4 bytes
     %% This is distinct from protocol version and client version.
     case Bin of
@@ -48,7 +197,7 @@ read_block_format_version(Bin) ->
             error_reading_block_format_version
     end.
 
-read_hash_of_previous_block(Bin) ->
+read_hash_of_prev_block(Bin) ->
     %% 32 bytes
     %% It is actually possible for a block to hash to zero, but hugely
     %% unlikely (though more and more likely as the difficulty
@@ -61,7 +210,7 @@ read_hash_of_previous_block(Bin) ->
             error_reading_hash_of_previous_block
     end.
 
-read_hash_of_merkle_tree(Bin, Option) ->
+read_hash_of_merkle_root(Bin, Option) ->
     %% 32 bytes
     %% Merkle trees are binary trees of hashes.
     %% Merkle trees in bitcoin use a double SHA-256.
@@ -77,7 +226,7 @@ read_hash_of_merkle_tree(Bin, Option) ->
                     error_option_unknown
             end;
         _ ->
-            error_reading_hash_of_merkle_tree
+            error_reading_hash_of_merkle_root
     end.
 
 read_timestamp(Bin, Option) ->
@@ -146,93 +295,30 @@ read_nonce(Bin, Option) ->
             error_reading_nonce
     end.
 
-read_transaction_count(Bin, Option) ->
-    %% Transaction count is a variable length integer representing the
-    %% number of transactions in this block.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Inside a transaction list
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    %% A maximum of 8 bytes are available for it.
-    %% Maximum number of transactions in a block: 2^64
+read_a_tx(Bin) ->
+    ok.
 
-    %% A block can never have zero transactions; at the very least
-    %% there will always be one generating the block reward.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Inside a transaction
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    %% Satoshi client code it refers to this as a "CompactSize".
-    
-    %% Encoding:
-    %%   Value         Storage Length   Format
-    %%   <  0xFD           1            uint8_t
-    %%   <= 0xFFFF         3            0xfd followed by the length as uint16_t
-    %%   <= 0xFFFFFFFF     5            0xfe followed by the length as uint32_t
-    %%   -                 9            0xff followed by the length as uint64_t
-    case Bin of
-        <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
-            read_transaction_count(Bin, Option, 1);
-        <<16#FD:8/integer, _/binary>> ->
-            read_transaction_count(Bin, Option, 3);
-        <<16#FE:8/integer, _/binary>> ->
-            read_transaction_count(Bin, Option, 5);
-        <<16#FF:8/integer, _/binary>> ->
-            read_transaction_count(Bin, Option, 9);
-        _ ->
-            error_decoding_length_of_transaction_count
-    end.
-read_transaction_count(Bin, Option, StorageLength) ->
-    case StorageLength of
-        1 ->
-            case Bin of
-                <<CountBin:1/binary, Rest/binary>> ->
-                    case Option of
-                        raw -> {CountBin, Rest};
-                        decimal -> <<Count:8/integer>> = CountBin, {Count, Rest}
-                    end;
-                _ ->
-                    error_reading_transaction_count_when_storage_length_is_1
-            end;
-        3 ->
-            case Bin of
-                <<16#FD, CountBin:2/binary, Rest/binary>> ->
-                    case Option of
-                        raw -> {CountBin, Rest};
-                        decimal -> <<Count:16/integer-little>> = CountBin, {Count, Rest}
-                    end;
-                _ ->
-                    error_reading_transaction_count_when_storage_length_is_3
-            end;
-        5 ->
-            case Bin of
-                <<16#FE, CountBin:4/binary, Rest/binary>> ->
-                    case Option of
-                        raw -> {CountBin, Rest};
-                        decimal -> <<Count:32/integer-little>> = CountBin, {Count, Rest}
-                    end;
-                _ ->
-                    error_reading_transaction_count_when_storage_length_is_5
-            end;
-        9 ->
-            case Bin of
-                <<16#FF, CountBin:8/binary, Rest/binary>> ->
-                    case Option of
-                        raw -> {CountBin, Rest};
-                        decimal -> <<Count:64/integer-little>> = CountBin, {Count, Rest}
-                    end;
-                _ ->
-                    error_reading_transaction_count_when_storage_length_is_9
-            end
-    end.
-
-read_transaction_version_number(Bin, Option) ->
+read_tx_ver(Bin, Option) ->
     %% 4 bytes
     case Bin of
-        <<TransactionVersionBin:4/binary, Rest/binary>> ->
+        <<TXVerBin:4/binary, Rest/binary>> ->
             case Option of
                 raw ->
-                    {TransactionVersionBin, Rest};
+                    {TXVerBin, Rest};
                 decimal ->
-                    <<TransactionVersion:32/integer-little>> = TransactionVersionBin,
-                    {TransactionVersion, Rest}
+                    <<TXVer:32/integer-little>> = TXVerBin,
+                    {TXVer, Rest}
             end;
         _ ->
-            error_reading_transaction_version_number
+            error_reading_tx_ver
     end.
 
 read_input_count(Bin, Option) ->
@@ -293,7 +379,7 @@ read_input_count(Bin, Option, StorageLength) ->
             end
     end.
 
-read_hash_of_input_transaction(Bin, Option) ->
+read_hash_of_input_tx(Bin, Option) ->
     %% 32 bytes
     case Bin of
         <<HashOfInputTXBin:32/binary, Rest/binary>> ->
@@ -302,10 +388,10 @@ read_hash_of_input_transaction(Bin, Option) ->
                     {HashOfInputTXBin, Rest}
             end;
         _ ->
-            error_reading_hash_of_input_transaction
+            error_reading_hash_of_input_tx
     end.
 
-read_input_transaction_index(Bin, Option) ->
+read_input_tx_index(Bin, Option) ->
     %% 4 bytes
     case Bin of
         <<InputTXIndexBin:4/binary, Rest/binary>> ->
@@ -317,24 +403,24 @@ read_input_transaction_index(Bin, Option) ->
                     {InputTXIndex, Rest}
             end;
         _ ->
-            error_reading_input_transaction_index
+            error_reading_input_tx_index
     end.
 
-read_response_script_length(Bin, Option) ->
+read_response_script_size(Bin, Option) ->
     %% Also a variable length integer
     case Bin of
         <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
-            read_response_script_length(Bin, Option, 1);
+            read_response_script_size(Bin, Option, 1);
         <<16#FD:8/integer, _/binary>> ->
-            read_response_script_length(Bin, Option, 3);
+            read_response_script_size(Bin, Option, 3);
         <<16#FE:8/integer, _/binary>> ->
-            read_response_script_length(Bin, Option, 5);
+            read_response_script_size(Bin, Option, 5);
         <<16#FF:8/integer, _/binary>> ->
-            read_response_script_length(Bin, Option, 9);
+            read_response_script_size(Bin, Option, 9);
         _ ->
-            error_decoding_length_of_transaction_count
+            error_decoding_length_of_transaction_size
     end.
-read_response_script_length(Bin, Option, StorageLength) ->
+read_response_script_size(Bin, Option, StorageLength) ->
     case StorageLength of
         1 ->
             case Bin of
@@ -391,7 +477,7 @@ read_response_script(Bin, ScriptLength, Option) ->
             end
     end.
 
-read_sequence_number(Bin, Option) ->
+read_sequence_num(Bin, Option) ->
     %% The "sequence number" supports the transaction replacement
     %% feature. The idea is that you broadcast a transaction with a
     %% lock time at some point in the future. You are then free to
@@ -489,21 +575,21 @@ read_output_value(Bin, Option) ->
             error
     end.
 
-read_pk_script_length(Bin, Option) ->
+read_pk_script_size(Bin, Option) ->
     %% Also a variable length integer
     case Bin of
         <<Take1:8/integer, _/binary>> when Take1 < 16#FD ->
-            read_pk_script_length(Bin, Option, 1);
+            read_pk_script_size(Bin, Option, 1);
         <<16#FD:8/integer, _/binary>> ->
-            read_pk_script_length(Bin, Option, 3);
+            read_pk_script_size(Bin, Option, 3);
         <<16#FE:8/integer, _/binary>> ->
-            read_pk_script_length(Bin, Option, 5);
+            read_pk_script_size(Bin, Option, 5);
         <<16#FF:8/integer, _/binary>> ->
-            read_pk_script_length(Bin, Option, 9);
+            read_pk_script_size(Bin, Option, 9);
         _ ->
             error
     end.
-read_pk_script_length(Bin, Option, StorageLength) ->
+read_pk_script_size(Bin, Option, StorageLength) ->
     case StorageLength of
         1 ->
             case Bin of
@@ -577,148 +663,19 @@ read_lock_time(Bin, Option) ->
             error
     end.
 
-read_a_transaction(Bin) ->
-    {TransactionVersionNumber, Bin10} = read_transaction_version_number(Bin, decimal),
-    {InputCount,               Bin11} = read_input_count(Bin10, decimal),
-    {HashOfInputTXBin,         Bin12} = read_hash_of_input_transaction(Bin11, raw),
-    {TransactionIndex,         Bin13} = read_input_transaction_index(Bin12, raw),
-    {ResponseScriptLength,     Bin14} = read_response_script_length(Bin13, decimal),
-    {ScriptBin,                Bin15} = read_response_script(Bin14, ResponseScriptLength, raw),
-    {SequenceNumberBin,        Bin16} = read_sequence_number(Bin15, raw),
-    {OutputCount,              Bin17} = read_output_count(Bin16, decimal),
-    {OutputValue,              Bin18} = read_output_value(Bin17, decimal),
-    {PKScriptLength,           Bin19} = read_pk_script_length(Bin18, decimal),
-    {PKScriptBin,              Bin20} = read_pk_script(Bin19, PKScriptLength, raw),
-    {LockTime,                 Bin21} = read_lock_time(Bin20, decimal),
-    Result = {
-      {transaction_version_number, TransactionVersionNumber},
-      {input_count,                InputCount},
-      {hash_of_input_tx_bin,       HashOfInputTXBin},
-      {transaction_index,          TransactionIndex},
-      {response_script_length,     ResponseScriptLength},
-      {script_bin,                 ScriptBin},
-      {sequence_number_bin,        SequenceNumberBin},
-      {output_count,               OutputCount},
-      {output_value,               OutputValue},
-      {pk_script_length,           PKScriptLength},
-      {pk_script_bin,              PKScriptBin},
-      {lock_time,                  LockTime}
-     },
-    {Result, Bin21}.
-
-read_a_block(Bin, BlockID) ->
-    %% Block structure
-    %%   1, [ 4 bytes] Magic no, value always 0xD9B4BEF9
-    %%   2, [ 4 bytes] Blocksize, number of bytes following up to end of block
-    %%   3, [80 bytes] Blockheader, consists of 6 items
-    %%     3.1, [ 4 bytes] Block version number
-    %%     3.2, [32 bytes] HashPrevBlock
-    %%     3.3, [32 bytes] HashMerkleRoot
-    %%     3.4, [ 4 bytes] TimeStamp
-    %%     3.5, [ 4 bytes] Bits, 4 bytes
-    %%     3.6, [ 4 bytes] Nonce, 32-bit number (starts at 0), 4 bytes
-    %%   4, [ 1~9 bytes] Transaction counter
-    %%   5, [many bytes] A Transaction
-    %%     5.1, [  4 bytes] Transaction data format version
-    %%     5.2, [1~9 bytes] Number of Transaction inputs 
-    %%     5.3, [41+ bytes] A list of 1 or more transaction inputs or sources for coins
-    %%       5.3.1, []
-    %%     _5.4, [4 bytes] Input transaction index
-    %%     _5.5, [1~9 bytes] Response script length
-    %%     _5.6, [] Response script
-    %%     _5.7, [4 bytes] Sequence number
-    %%     5.8, [1~9 bytes] Number of Transaction outputs
-    %%     5.9, [ 9+ bytes] A list of 1 or more transaction outputs or destinations for coins 
-    %%     _5.10, [] PK script length
-    %%     _5.11, [] PK script
-    %%     5.12, [4 bytes] Lock time, The block number or timestamp at which this transaction is locked
-    %%   6, (might be more)
-
-    %% Ref:
-    %%   https://en.bitcoin.it/wiki/Blocks
-    %%   https://en.bitcoin.it/wiki/Block_hashing_algorithm
-    %%   https://en.bitcoin.it/wiki/Protocol_specification
-    
-    {NetworkID,                Bin1} = read_network_id(Bin),
-    {BlockLength,              Bin2} = read_block_length(Bin1),
-
-    %% Blockheader begins
-    {BlockFormatVersion,       Bin3} = read_block_format_version(Bin2),
-    {HashOfPreviousBlock,      Bin4} = read_hash_of_previous_block(Bin3),
-    {HashOfMerkleTree,         Bin5} = read_hash_of_merkle_tree(Bin4, raw),
-    {TimeStamp,                Bin6} = read_timestamp(Bin5, decimal),
-    {Bits,                     Bin7} = read_bits(Bin6, decimal),
-    {NonceBin,                 Bin8} = read_nonce(Bin7, raw),
-    %% Blockheader ends
-
-    {TransactionCount,         Bin9} = read_transaction_count(Bin8, decimal),
-
-    %% List of transactions begins
-    %% One transaction begins
-    {TransactionVersionNumber, Bin10} = read_transaction_version_number(Bin9, decimal),
-    {InputCount,               Bin11} = read_input_count(Bin10, decimal),
-    {HashOfInputTXBin,         Bin12} = read_hash_of_input_transaction(Bin11, raw),
-    {TransactionIndex,         Bin13} = read_input_transaction_index(Bin12, raw),
-    {ResponseScriptLength,     Bin14} = read_response_script_length(Bin13, decimal),
-    {ScriptBin,                Bin15} = read_response_script(Bin14, ResponseScriptLength, raw),
-    {SequenceNumberBin,        Bin16} = read_sequence_number(Bin15, raw),
-    {OutputCount,              Bin17} = read_output_count(Bin16, decimal),
-    {OutputValue,              Bin18} = read_output_value(Bin17, decimal),
-    {PKScriptLength,           Bin19} = read_pk_script_length(Bin18, decimal),
-    {PKScriptBin,              Bin20} = read_pk_script(Bin19, PKScriptLength, raw),
-    {LockTime,                 Bin21} = read_lock_time(Bin20, decimal),
-    %% One transaction ends
-    %% ... (more transactions) ...
-    %% List of transactions ends
-
-    Result =
-        {{block_id,                   BlockID},
-         {network_id,                 NetworkID},
-         {block_length,               BlockLength},
-         {block_format_version,       BlockFormatVersion},
-         {hash_of_previous_block,     HashOfPreviousBlock},
-         {hash_of_merkle_tree,        HashOfMerkleTree},
-         {timestamp,                  TimeStamp},
-         {bits,                       Bits},
-         {nonce_bin,                  NonceBin},
-         {transaction_count,          TransactionCount},
-         {transaction_version_number, TransactionVersionNumber},
-         {input_count,                InputCount},
-         {hash_of_input_tx_bin,       HashOfInputTXBin},
-         {transaction_index,          TransactionIndex},
-         {response_script_length,     ResponseScriptLength},
-         {script_bin,                 ScriptBin},
-         {sequence_number_bin,        SequenceNumberBin},
-         {output_count,               OutputCount},
-         {output_value,               OutputValue},
-         {pk_script_length,           PKScriptLength},
-         {pk_script_bin,              PKScriptBin},
-         {lock_time,                  LockTime}
-        },
-    {Result, Bin21}.
-    
-go(N) ->
+go() ->
     {ok, Bin} = file:read_file("blocks/blk00000.dat"),
-    Rest = go(Bin, N, 0),
-    {size(Rest), Rest}.
+    BlockID = 0,
+    go(Bin, BlockID).
 
-go(Bin, N, BID) ->
-    case N of
-        0 -> Bin;
-        _ ->
-            {Result, Bin1} = read_a_block(Bin, BID),
-            if
-                N == 1 ->
-                    io:format("~p~n", [Result]);
-                true ->
-                    ok
-            end,
-            go(Bin1, N-1, BID+1)
-    end.
-    
-    %%binary_to_hex_string(PKSBin).
+go(Bin, BlockID) ->
+    {{BlockSize}, Bin1} = read_a_raw_block(Bin),
+    io:format("Block [~p] has [~p] bytes.~n", [BlockID, BlockSize]),
+    go(Bin1, BlockID + 1).
 
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Inner functions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 binary_to_hex_string(Bin) ->
     lists:flatten([io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Bin ]).
